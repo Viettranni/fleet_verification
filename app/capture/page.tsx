@@ -66,7 +66,7 @@ export default function CapturePage() {
   const startCamera = async () => {
     // if (stream) {
     //   stream.getTracks().forEach((track) => track.stop());
-    //   setStream(null); 
+    //   setStream(null);
     // }
 
     try {
@@ -178,7 +178,6 @@ export default function CapturePage() {
           setDetectedPlate(null);
           startCamera();
         }, 1500);
-
       } else {
         // Show confirmation dialog for plates not in warehouse
         setPendingPlate({ plateNumber: randomPlate, imageUrl: imageDataUrl });
@@ -254,8 +253,10 @@ export default function CapturePage() {
       stopCamera(stream);
     }
     await router.push("/dashboard");
-    // This would shut down the camera
-    window.location.reload();
+    // Wait a little to ensure navigation completes, then reload
+    setTimeout(() => {
+      window.location.reload();
+    }, 100); // 100 ms delay
   };
 
   return (
