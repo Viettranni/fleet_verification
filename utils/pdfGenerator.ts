@@ -61,7 +61,7 @@ export const generatePDFReport = async (scannedPlates: PlateRecord[], warehouseP
 
       try {
         // Compress image more aggressively
-        const compressedImage = await compressImageForPDF(plate.imageUrl, 300, 0.5)
+        const compressedImage = await compressImageForPDF(plate.imageUrl, 300, 1)
 
         // Add plate number on top of image
         pdf.setFontSize(8)
@@ -130,7 +130,7 @@ export const generatePDFReport = async (scannedPlates: PlateRecord[], warehouseP
   return pdf.output("blob")
 }
 
-const compressImageForPDF = (dataUrl: string, maxDimension = 300, quality = 0.5): Promise<string> => {
+const compressImageForPDF = (dataUrl: string, maxDimension = 300, quality = 1): Promise<string> => {
   return new Promise((resolve, reject) => {
     const img = new Image()
     img.onload = () => {
@@ -142,7 +142,6 @@ const compressImageForPDF = (dataUrl: string, maxDimension = 300, quality = 0.5)
         return
       }
 
-      // Calculate dimensions while maintaining aspect ratio
       let width = img.width
       let height = img.height
 
@@ -158,48 +157,54 @@ const compressImageForPDF = (dataUrl: string, maxDimension = 300, quality = 0.5)
         }
       }
 
+      // Round to avoid fractional pixels
+      width = Math.round(width)
+      height = Math.round(height)
+
       canvas.width = width
       canvas.height = height
 
-      // Apply some sharpening to maintain readability of license plates
       ctx.imageSmoothingEnabled = true
       ctx.imageSmoothingQuality = "high"
 
-      // Draw image with white background to ensure readability
       ctx.fillStyle = "#FFFFFF"
       ctx.fillRect(0, 0, width, height)
-      ctx.drawImage(img, 0, 0, width, height)
 
-      // Apply subtle contrast enhancement for better plate readability
+      // Draw the original image source area scaled to canvas size
+      ctx.drawImage(img, 0, 0, img.width, img.height, 0, 0, width, height)
+
+      // Contrast enhancement logic remains the same
       try {
         const imageData = ctx.getImageData(0, 0, width, height)
         const data = imageData.data
 
+        const truncate = (value: number): number => Math.max(0, Math.min(255, value))
+        const contrastFactor = 1.05
+
         for (let i = 0; i < data.length; i += 4) {
-          // Simple contrast enhancement
-          data[i] = data[i] < 120 ? data[i] * 0.8 : Math.min(255, data[i] * 1.2)
-          data[i + 1] = data[i + 1] < 120 ? data[i + 1] * 0.8 : Math.min(255, data[i + 1] * 1.2)
-          data[i + 2] = data[i + 2] < 120 ? data[i + 2] * 0.8 : Math.min(255, data[i + 2] * 1.2)
+          data[i]     = truncate((data[i] - 128) * contrastFactor + 128)     // Red
+          data[i + 1] = truncate((data[i + 1] - 128) * contrastFactor + 128) // Green
+          data[i + 2] = truncate((data[i + 2] - 128) * contrastFactor + 128) // Blue
         }
 
         ctx.putImageData(imageData, 0, 0)
       } catch (e) {
-        // If enhancement fails, continue with original image
         console.warn("Image enhancement failed, using original")
       }
 
-      // Compress as JPEG with specified quality
       resolve(canvas.toDataURL("image/jpeg", quality))
     }
+
     img.onerror = () => reject(new Error("Failed to load image"))
     img.src = dataUrl
   })
 }
 
+
 // Helper function to estimate PDF size based on number of plates
 export const estimatePDFSize = (plateCount: number): string => {
-  // Rough estimate: ~30KB per plate + 100KB base size
-  const estimatedKB = Math.round(plateCount * 30 + 100)
+  // Rough estimate: ~60KB per plate + 100KB base size
+  const estimatedKB = Math.round(plateCount * 60 + 100)
 
   if (estimatedKB < 1000) {
     return `~${estimatedKB} KB`

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { FileSpreadsheet, ArrowLeft, Upload, CheckCircle } from "lucide-react"
 import { toast } from "sonner"
+import * as XLSX from "xlsx";
 
 export default function ExcelUploadPage() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
@@ -26,41 +27,97 @@ export default function ExcelUploadPage() {
     }
   }
 
+  // const processExcelFile = async () => {
+  //   if (!selectedFile) return
+
+  //   setIsProcessing(true)
+
+  //   // Simulate Excel processing
+  //   setTimeout(() => {
+  //     // Mock warehouse plates data
+  //     const mockWarehousePlates = [
+  //       "ABC-123",
+  //       "DEF-456",
+  //       "GHI-789",
+  //       "JKL-012",
+  //       "MNO-345",
+  //       "PQR-678",
+  //       "STU-901",
+  //       "VWX-234",
+  //       "YZA-567",
+  //       "BCD-890",
+  //       "REK-123",
+  //       "FIN-001",
+  //       "HEL-999",
+  //       "TUR-555",
+  //       "OUL-777",
+  //     ]
+
+  //     setUploadedPlates(mockWarehousePlates)
+  //     localStorage.setItem("warehousePlates", JSON.stringify(mockWarehousePlates))
+  //     setIsProcessing(false)
+
+  //     toast.success("Excel file processed", {
+  //       description: `${mockWarehousePlates.length} warehouse plates loaded`,
+  //     })
+  //   }, 2000)
+  // }
+
   const processExcelFile = async () => {
-    if (!selectedFile) return
+    if (!selectedFile) return;
 
-    setIsProcessing(true)
+    setIsProcessing(true);
 
-    // Simulate Excel processing
-    setTimeout(() => {
-      // Mock warehouse plates data
-      const mockWarehousePlates = [
-        "ABC-123",
-        "DEF-456",
-        "GHI-789",
-        "JKL-012",
-        "MNO-345",
-        "PQR-678",
-        "STU-901",
-        "VWX-234",
-        "YZA-567",
-        "BCD-890",
-        "REK-123",
-        "FIN-001",
-        "HEL-999",
-        "TUR-555",
-        "OUL-777",
-      ]
+    const reader = new FileReader();
 
-      setUploadedPlates(mockWarehousePlates)
-      localStorage.setItem("warehousePlates", JSON.stringify(mockWarehousePlates))
-      setIsProcessing(false)
+    reader.onload = (e) => {
+      const data = new Uint8Array(e.target?.result as ArrayBuffer);
+      const workbook = XLSX.read(data, { type: "array" });
+
+      // Read the first worksheet
+      const sheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[sheetName];
+
+      // Convert to JSON array (each row is an object)
+      const jsonData = XLSX.utils.sheet_to_json<{ plate?: string }>(worksheet, {
+        header: 1,
+      });
+
+      // Flatten and filter out non-strings/nulls
+      const extractedPlates: string[] = jsonData
+        .flat()
+        .filter((item): item is string => typeof item === "string");
+
+      // Read existing warehouse plates from localStorage
+      const existingPlates: string[] = JSON.parse(
+        localStorage.getItem("warehousePlates") || "[]"
+      );
+
+      // Add only new plates
+      const uniqueNewPlates = extractedPlates.filter(
+        (plate) => !existingPlates.includes(plate)
+      );
+
+      const merged = [...existingPlates, ...uniqueNewPlates];
+
+      // Save updated list to state and localStorage
+      setUploadedPlates(merged);
+      localStorage.setItem("warehousePlates", JSON.stringify(merged));
+
+      setIsProcessing(false);
 
       toast.success("Excel file processed", {
-        description: `${mockWarehousePlates.length} warehouse plates loaded`,
-      })
-    }, 2000)
-  }
+        description: `${uniqueNewPlates.length} new plates added (${merged.length} total)`,
+      });
+    };
+
+    reader.onerror = () => {
+      setIsProcessing(false);
+      toast.error("Failed to read file");
+    };
+
+    reader.readAsArrayBuffer(selectedFile);
+  };
 
   const goToDashboard = () => {
     router.push("/dashboard")

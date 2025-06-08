@@ -2,9 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { recognizePlate } from "@/utils/plateRecognizer";
 import { Button } from "@/components/ui/button";
-import { dataURLToFile } from "@/utils/dataUrlToFile";
 import {
   Card,
   CardContent,
@@ -21,6 +19,8 @@ import {
   CheckCircle,
 } from "lucide-react";
 import { toast } from "sonner";
+import { dataURLToFile } from "@/utils/dataUrlToFile";
+import { recognizePlate } from "@/utils/plateRecognizer";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -60,13 +60,12 @@ export default function CapturePage() {
     startCamera();
     return () => {
       if (stream) {
-        stopCamera(stream);
+        stream.getTracks().forEach((track) => track.stop());
       }
     };
   }, []);
 
   const startCamera = async () => {
-
     try {
       const mediaStream = await navigator.mediaDevices.getUserMedia({
         video: {
@@ -78,9 +77,6 @@ export default function CapturePage() {
       setStream(mediaStream);
       if (videoRef.current) {
         videoRef.current.srcObject = mediaStream;
-        videoRef.current.onloadedmetadata = () => {
-          videoRef.current?.play();
-        };
       }
     } catch (error) {
       toast.error("Camera Error", {
@@ -101,6 +97,7 @@ export default function CapturePage() {
     }
   };
 
+
   const capturePhoto = () => {
     if (!videoRef.current || !canvasRef.current) return;
 
@@ -116,13 +113,11 @@ export default function CapturePage() {
       const imageDataUrl = canvas.toDataURL("image/jpeg", 0.7);
       setCapturedImage(imageDataUrl);
       const file = dataURLToFile(imageDataUrl, "Change name plate");
-      processImage(file);
+      processImage(file, imageDataUrl); // Pass imageDataUrl directly
     }
   };
 
-  
-
-  const processImage = async (file: File) => {
+  const processImage = async (file: File, imageDataUrl: string) => {
     setIsProcessing(true);
 
     const plate = await recognizePlate(file);
@@ -130,14 +125,13 @@ export default function CapturePage() {
     if (!plate) {
       toast.error("Could not detect a valid plate number, please try again");
       setIsProcessing(false);
-      await new Promise((resolve) => setTimeout(resolve, 1500000));
-      window.location.reload();
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      retakePhoto();
       return;
     }
 
     setDetectedPlate(plate);
-    
-    // Your existing warehouse check logic
+
     const warehousePlates = JSON.parse(
       localStorage.getItem("warehousePlates") || "[]"
     );
@@ -148,11 +142,22 @@ export default function CapturePage() {
       const newPlate = {
         id: Date.now().toString(),
         plateNumber: plate,
-        imageUrl: capturedImage,
+        imageUrl: imageDataUrl, // Use the passed imageDataUrl
         timestamp: new Date(),
         status: "matched" as const,
         isInWarehouse: true,
       };
+
+      setRecentCaptures((prev) => [
+        {
+          id: newPlate.id,
+          plateNumber: newPlate.plateNumber,
+          imageUrl: newPlate.imageUrl,
+          timestamp: newPlate.timestamp,
+          isInWarehouse: true,
+        },
+        ...prev.slice(0, 4),
+      ]);
 
       const existing = JSON.parse(
         localStorage.getItem("scannedPlates") || "[]"
@@ -171,72 +176,11 @@ export default function CapturePage() {
       }, 800);
     } else {
       // Show confirmation dialog for plates not in warehouse
-      setPendingPlate({ plateNumber: plate, imageUrl: capturedImage ?? "" });
+      setPendingPlate({ plateNumber: plate, imageUrl: imageDataUrl }); // Use the passed imageDataUrl
       setShowConfirmDialog(true);
     }
 
     setIsProcessing(false);
-
-    // // Simulate OCR processing
-    // setTimeout(() => {
-    //   const mockPlates = ["ABC-123", "REK-456", "XYZ-789", "FIN-001"];
-    //   const randomPlate =
-    //     mockPlates[Math.floor(Math.random() * mockPlates.length)];
-
-    //   setDetectedPlate(randomPlate);
-    //   setIsProcessing(false);
-
-    //   // Check if plate exists in warehouse
-    //   const warehousePlates = JSON.parse(
-    //     localStorage.getItem("warehousePlates") || "[]"
-    //   );
-    //   const isInWarehouse = warehousePlates.includes(randomPlate);
-
-    //   if (isInWarehouse) {
-    //     // Auto-save if found in warehouse
-    //     const newPlate = {
-    //       id: Date.now().toString(),
-    //       plateNumber: randomPlate,
-    //       imageUrl: imageDataUrl,
-    //       timestamp: new Date(),
-    //       status: "matched" as const,
-    //       isInWarehouse: true,
-    //     };
-
-    //     const existing = JSON.parse(
-    //       localStorage.getItem("scannedPlates") || "[]"
-    //     );
-    //     const updated = [...existing, newPlate];
-    //     localStorage.setItem("scannedPlates", JSON.stringify(updated));
-
-    //     // Add to recent captures
-    //     setRecentCaptures((prev) => [
-    //       {
-    //         id: newPlate.id,
-    //         plateNumber: newPlate.plateNumber,
-    //         imageUrl: newPlate.imageUrl,
-    //         timestamp: newPlate.timestamp,
-    //         isInWarehouse: true,
-    //       },
-    //       ...prev.slice(0, 4),
-    //     ]);
-
-    //     toast.success("✓ Plate Found in Warehouse", {
-    //       description: `${randomPlate} added to inventory`,
-    //     });
-
-    //     // Reset for next capture but keep camera on
-    //     setTimeout(() => {
-    //       setCapturedImage(null);
-    //       setDetectedPlate(null);
-    //       startCamera();
-    //     }, 1500);
-    //   } else {
-    //     // Show confirmation dialog for plates not in warehouse
-    //     setPendingPlate({ plateNumber: randomPlate, imageUrl: imageDataUrl });
-    //     setShowConfirmDialog(true);
-    //   }
-    // }, 2000);
   };
 
   const handleAddUnmatchedPlate = () => {
@@ -277,7 +221,6 @@ export default function CapturePage() {
     // Reset for next capture but keep camera on
     setCapturedImage(null);
     setDetectedPlate(null);
-
     startCamera();
   };
 
@@ -291,7 +234,6 @@ export default function CapturePage() {
     // Reset for next capture but keep camera on
     setCapturedImage(null);
     setDetectedPlate(null);
-
     startCamera();
   };
 
@@ -299,7 +241,7 @@ export default function CapturePage() {
     setCapturedImage(null);
     setDetectedPlate(null);
     setIsProcessing(false);
-    startCamera()
+    startCamera();
   };
 
   const exitCapture = async () => {
@@ -307,10 +249,9 @@ export default function CapturePage() {
       stopCamera(stream);
     }
     await router.push("/dashboard");
-    // Wait a little to ensure navigation completes, then reload
     setTimeout(() => {
       window.location.reload();
-    }, 100); // 100 ms delay
+    }, 100);
   };
 
   return (
