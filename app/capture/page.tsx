@@ -2,7 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { recognizePlate } from "@/utils/plateRecognizer";
 import { Button } from "@/components/ui/button";
+import { dataURLToFile } from "@/utils/dataUrlToFile";
 import {
   Card,
   CardContent,
@@ -64,10 +66,6 @@ export default function CapturePage() {
   }, []);
 
   const startCamera = async () => {
-    // if (stream) {
-    //   stream.getTracks().forEach((track) => track.stop());
-    //   setStream(null);
-    // }
 
     try {
       const mediaStream = await navigator.mediaDevices.getUserMedia({
@@ -115,75 +113,130 @@ export default function CapturePage() {
       canvas.height = video.videoHeight;
       context.drawImage(video, 0, 0);
 
-      const imageDataUrl = canvas.toDataURL("image/jpeg", 0.8);
+      const imageDataUrl = canvas.toDataURL("image/jpeg", 0.7);
       setCapturedImage(imageDataUrl);
-      processImage(imageDataUrl);
+      const file = dataURLToFile(imageDataUrl, "Change name plate");
+      processImage(file);
     }
   };
 
-  const processImage = async (imageDataUrl: string) => {
+  
+
+  const processImage = async (file: File) => {
     setIsProcessing(true);
 
-    // Simulate OCR processing
-    setTimeout(() => {
-      const mockPlates = ["ABC-123", "REK-456", "XYZ-789", "FIN-001"];
-      const randomPlate =
-        mockPlates[Math.floor(Math.random() * mockPlates.length)];
+    const plate = await recognizePlate(file);
 
-      setDetectedPlate(randomPlate);
+    if (!plate) {
+      toast.error("Could not detect a valid plate number, please try again");
       setIsProcessing(false);
+      await new Promise((resolve) => setTimeout(resolve, 1500000));
+      window.location.reload();
+      return;
+    }
 
-      // Check if plate exists in warehouse
-      const warehousePlates = JSON.parse(
-        localStorage.getItem("warehousePlates") || "[]"
+    setDetectedPlate(plate);
+    
+    // Your existing warehouse check logic
+    const warehousePlates = JSON.parse(
+      localStorage.getItem("warehousePlates") || "[]"
+    );
+    const isInWarehouse = warehousePlates.includes(plate);
+
+    if (isInWarehouse) {
+      // Auto-save if found in warehouse
+      const newPlate = {
+        id: Date.now().toString(),
+        plateNumber: plate,
+        imageUrl: capturedImage,
+        timestamp: new Date(),
+        status: "matched" as const,
+        isInWarehouse: true,
+      };
+
+      const existing = JSON.parse(
+        localStorage.getItem("scannedPlates") || "[]"
       );
-      const isInWarehouse = warehousePlates.includes(randomPlate);
+      const updated = [...existing, newPlate];
+      localStorage.setItem("scannedPlates", JSON.stringify(updated));
 
-      if (isInWarehouse) {
-        // Auto-save if found in warehouse
-        const newPlate = {
-          id: Date.now().toString(),
-          plateNumber: randomPlate,
-          imageUrl: imageDataUrl,
-          timestamp: new Date(),
-          status: "matched" as const,
-          isInWarehouse: true,
-        };
+      toast.success("✓ Plate Found in Warehouse", {
+        description: `${plate} automatically added to inventory`,
+      });
 
-        const existing = JSON.parse(
-          localStorage.getItem("scannedPlates") || "[]"
-        );
-        const updated = [...existing, newPlate];
-        localStorage.setItem("scannedPlates", JSON.stringify(updated));
+      setTimeout(() => {
+        setCapturedImage(null);
+        setDetectedPlate(null);
+        startCamera();
+      }, 800);
+    } else {
+      // Show confirmation dialog for plates not in warehouse
+      setPendingPlate({ plateNumber: plate, imageUrl: capturedImage ?? "" });
+      setShowConfirmDialog(true);
+    }
 
-        // Add to recent captures
-        setRecentCaptures((prev) => [
-          {
-            id: newPlate.id,
-            plateNumber: newPlate.plateNumber,
-            imageUrl: newPlate.imageUrl,
-            timestamp: newPlate.timestamp,
-            isInWarehouse: true,
-          },
-          ...prev.slice(0, 4),
-        ]);
+    setIsProcessing(false);
 
-        toast.success("✓ Plate Found in Warehouse", {
-          description: `${randomPlate} added to inventory`,
-        });
+    // // Simulate OCR processing
+    // setTimeout(() => {
+    //   const mockPlates = ["ABC-123", "REK-456", "XYZ-789", "FIN-001"];
+    //   const randomPlate =
+    //     mockPlates[Math.floor(Math.random() * mockPlates.length)];
 
-        // Reset for next capture but keep camera on
-        setTimeout(() => {
-          setCapturedImage(null);
-          setDetectedPlate(null);
-          startCamera();
-        }, 1500);
-      } else {
-        // Show confirmation dialog for plates not in warehouse
-        setPendingPlate({ plateNumber: randomPlate, imageUrl: imageDataUrl });
-        setShowConfirmDialog(true);
-      }
-    }, 2000);
+    //   setDetectedPlate(randomPlate);
+    //   setIsProcessing(false);
+
+    //   // Check if plate exists in warehouse
+    //   const warehousePlates = JSON.parse(
+    //     localStorage.getItem("warehousePlates") || "[]"
+    //   );
+    //   const isInWarehouse = warehousePlates.includes(randomPlate);
+
+    //   if (isInWarehouse) {
+    //     // Auto-save if found in warehouse
+    //     const newPlate = {
+    //       id: Date.now().toString(),
+    //       plateNumber: randomPlate,
+    //       imageUrl: imageDataUrl,
+    //       timestamp: new Date(),
+    //       status: "matched" as const,
+    //       isInWarehouse: true,
+    //     };
+
+    //     const existing = JSON.parse(
+    //       localStorage.getItem("scannedPlates") || "[]"
+    //     );
+    //     const updated = [...existing, newPlate];
+    //     localStorage.setItem("scannedPlates", JSON.stringify(updated));
+
+    //     // Add to recent captures
+    //     setRecentCaptures((prev) => [
+    //       {
+    //         id: newPlate.id,
+    //         plateNumber: newPlate.plateNumber,
+    //         imageUrl: newPlate.imageUrl,
+    //         timestamp: newPlate.timestamp,
+    //         isInWarehouse: true,
+    //       },
+    //       ...prev.slice(0, 4),
+    //     ]);
+
+    //     toast.success("✓ Plate Found in Warehouse", {
+    //       description: `${randomPlate} added to inventory`,
+    //     });
+
+    //     // Reset for next capture but keep camera on
+    //     setTimeout(() => {
+    //       setCapturedImage(null);
+    //       setDetectedPlate(null);
+    //       startCamera();
+    //     }, 1500);
+    //   } else {
+    //     // Show confirmation dialog for plates not in warehouse
+    //     setPendingPlate({ plateNumber: randomPlate, imageUrl: imageDataUrl });
+    //     setShowConfirmDialog(true);
+    //   }
+    // }, 2000);
   };
 
   const handleAddUnmatchedPlate = () => {
@@ -246,6 +299,7 @@ export default function CapturePage() {
     setCapturedImage(null);
     setDetectedPlate(null);
     setIsProcessing(false);
+    startCamera()
   };
 
   const exitCapture = async () => {
