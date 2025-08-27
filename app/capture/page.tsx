@@ -65,7 +65,7 @@ export default function CapturePage() {
         stream.getTracks().forEach((track) => track.stop());
       }
     };
-  }, [stream]);
+  }, []);
 
   // Loads the plates now when the component mounts
   useEffect(() => {
