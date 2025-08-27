@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { supabase } from '@/lib/supabaseClient'
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
@@ -55,6 +56,7 @@ export default function CapturePage() {
     imageUrl: string;
   } | null>(null);
   const [recentCaptures, setRecentCaptures] = useState<CapturedPlate[]>([]);
+  const [uploadedPlates, setUploadedPlates] = useState<string[]>([]);
 
   useEffect(() => {
     startCamera();
@@ -63,6 +65,26 @@ export default function CapturePage() {
         stream.getTracks().forEach((track) => track.stop());
       }
     };
+  }, []);
+
+  // Loads the plates now when the component mounts
+  useEffect(() => {
+    const fetchPlates = async () => {
+      const { data, error } = await supabase
+        .from("plates")
+        .select("plate"); // fetch only the plate column
+
+      if (error) {
+        console.error("Error fetching plates:", error);
+        return;
+      }
+
+      // Extract plate strings from the returned data
+      const platesFromDB = data?.map((row) => row.plate) || [];
+      setUploadedPlates(platesFromDB);
+    };
+
+    fetchPlates();
   }, []);
 
   const startCamera = async () => {
@@ -97,7 +119,7 @@ export default function CapturePage() {
     }
   };
 
-
+  // Calls this function when the User hits the capture button
   const capturePhoto = () => {
     if (!videoRef.current || !canvasRef.current) return;
 
@@ -112,16 +134,19 @@ export default function CapturePage() {
 
       const imageDataUrl = canvas.toDataURL("image/jpeg", 0.7);
       setCapturedImage(imageDataUrl);
-      const file = dataURLToFile(imageDataUrl, "Change name plate");
+      const file = dataURLToFile(imageDataUrl, "car_plate");
       processImage(file, imageDataUrl); // Pass imageDataUrl directly
     }
   };
 
+  // After capturing the picture it would be passed into processing the picture
   const processImage = async (file: File, imageDataUrl: string) => {
     setIsProcessing(true);
 
+    // Recognize plate would give back the plate number
     const plate = await recognizePlate(file);
 
+    // If the plate was not recognized
     if (!plate) {
       toast.error("Could not detect a valid plate number, please try again");
       setIsProcessing(false);
@@ -130,40 +155,58 @@ export default function CapturePage() {
       return;
     }
 
-    setDetectedPlate(plate);
+    // After the plate was checked to be valid we would set the detected plate and upload the image file to supabase bucket and also table as key pair
+    setDetectedPlate(formatFinnishPlate(plate));
+    const supaImgUrl = await uploadImage(file);
 
-    const warehousePlates = JSON.parse(
-      localStorage.getItem("warehousePlates") || "[]"
-    );
-    const isInWarehouse = warehousePlates.includes(plate);
+    // Checks if supabase returns string and not null
+    
+
+    console.log("This is the captured image URL: " + supaImgUrl)
+
+
+    // TODO: CHECK the upload logic also to match
+    // TODO: Make sure that the generate report works correctly
+    // TODO: Does clear all and clear scanned work correctly?
+    // TODO: Dashboard is not fetching the numbers correctly
+
+
+    // Would check if the plate is in User's uploaded excel, returns true or false
+    const isInWarehouse = uploadedPlates.includes(plate);
 
     if (isInWarehouse) {
       // Auto-save if found in warehouse
       const newPlate = {
         id: Date.now().toString(),
-        plateNumber: plate,
-        imageUrl: imageDataUrl, // Use the passed imageDataUrl
-        timestamp: new Date(),
+        plate: plate,
+        plate_url: imageDataUrl, // Use the passed imageDataUrl
+        created_At: new Date(),
         status: "matched" as const,
         isInWarehouse: true,
       };
 
-      setRecentCaptures((prev) => [
-        {
-          id: newPlate.id,
-          plateNumber: newPlate.plateNumber,
-          imageUrl: newPlate.imageUrl,
-          timestamp: newPlate.timestamp,
-          isInWarehouse: true,
-        },
-        ...prev.slice(0, 4),
-      ]);
+      if (supaImgUrl) {
+        savePlate(plate, supaImgUrl, true, "matched");
+      } else {
+        console.error("Upload failed, cannot save plate");
+      }
 
-      const existing = JSON.parse(
-        localStorage.getItem("scannedPlates") || "[]"
-      );
-      const updated = [...existing, newPlate];
-      localStorage.setItem("scannedPlates", JSON.stringify(updated));
+      // setRecentCaptures((prev) => [
+      //   {
+      //     id: newPlate.id,
+      //     plateNumber: newPlate.plate,
+      //     imageUrl: newPlate.plate_url,
+      //     timestamp: newPlate.created_At,
+      //     isInWarehouse: true,
+      //   },
+      //   ...prev.slice(0, 4),
+      // ]);
+
+      // const existing = JSON.parse(
+      //   localStorage.getItem("scannedPlates") || "[]"
+      // );
+      // const updated = [...existing, newPlate];
+      // localStorage.setItem("scannedPlates", JSON.stringify(updated));
 
       toast.success("✓ Plate Found in Warehouse", {
         description: `${plate} automatically added to inventory`,
@@ -188,24 +231,23 @@ export default function CapturePage() {
 
     const newPlate = {
       id: Date.now().toString(),
-      plateNumber: pendingPlate.plateNumber,
-      imageUrl: pendingPlate.imageUrl,
-      timestamp: new Date(),
+      plate: pendingPlate.plateNumber,
+      plate_url: pendingPlate.imageUrl,
+      created_at: new Date(),
       status: "unmatched" as const,
       isInWarehouse: false,
     };
 
-    const existing = JSON.parse(localStorage.getItem("scannedPlates") || "[]");
-    const updated = [...existing, newPlate];
-    localStorage.setItem("scannedPlates", JSON.stringify(updated));
+    // Add to supabase
+    savePlate(pendingPlate.plateNumber, pendingPlate.imageUrl, false, "unmatched")
 
     // Add to recent captures
     setRecentCaptures((prev) => [
       {
         id: newPlate.id,
-        plateNumber: newPlate.plateNumber,
-        imageUrl: newPlate.imageUrl,
-        timestamp: newPlate.timestamp,
+        plateNumber: newPlate.plate,
+        imageUrl: newPlate.plate_url,
+        timestamp: newPlate.created_at,
         isInWarehouse: false,
       },
       ...prev.slice(0, 4),
@@ -253,6 +295,60 @@ export default function CapturePage() {
       window.location.reload();
     }, 100);
   };
+
+  // This section is for SUPABASE --------------------
+
+  // Uploads to the supabase bucket and would return the image url
+  async function uploadImage(file: File): Promise<string | null> {
+    const fileName = `${Date.now()}-${file.name}`; // unique filename
+
+    const { error } = await supabase.storage
+      .from('car_images')
+      .upload(fileName, file);
+
+    if (error) {
+      console.error('Upload error:', error);
+      console.log("There was an error while uploading to Supabase!");
+      return null;
+    }
+
+    // Get public URL
+    const { data } = supabase.storage
+      .from('car_images')
+      .getPublicUrl(fileName);
+
+    return data.publicUrl; 
+  }
+
+  // Saving the plate and image url to supabase to plates table
+  async function savePlate(plateNumber: string, imageUrl: string, isInWarehouse: boolean, status: "matched" | "unmatched") {
+
+    const { data, error } = await supabase
+      .from('plates')
+      .insert([
+        { plate: plateNumber, 
+          plate_url: imageUrl,
+          isInWarehouse: isInWarehouse,
+          status: status
+        }
+      ])
+
+    if (error) console.error(error)
+    else console.log('Saved plate:', data)
+  }
+
+  function formatFinnishPlate(plate: string): string {
+    // Remove any existing dash and convert to uppercase
+    const cleaned = plate.replace(/-/g, "").toUpperCase();
+
+    // Ensure it has at least 3 letters + numbers
+    if (cleaned.length > 3) {
+      return `${cleaned.slice(0, 3)}-${cleaned.slice(3)}`;
+    }
+
+    return cleaned;
+  }
+
 
   return (
     <div className="min-h-screen bg-gray-50">

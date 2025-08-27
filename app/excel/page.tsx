@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { FileSpreadsheet, ArrowLeft, Upload, CheckCircle } from "lucide-react"
 import { toast } from "sonner"
+import { supabase } from '@/lib/supabaseClient'
 import * as XLSX from "xlsx";
 
 export default function ExcelUploadPage() {
@@ -15,6 +16,7 @@ export default function ExcelUploadPage() {
   const [uploadedPlates, setUploadedPlates] = useState<string[]>([])
   const router = useRouter()
 
+  // Checking if the file is valid
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (file && (file.type.includes("spreadsheet") || file.name.endsWith(".xlsx") || file.name.endsWith(".csv"))) {
@@ -27,42 +29,6 @@ export default function ExcelUploadPage() {
     }
   }
 
-  // const processExcelFile = async () => {
-  //   if (!selectedFile) return
-
-  //   setIsProcessing(true)
-
-  //   // Simulate Excel processing
-  //   setTimeout(() => {
-  //     // Mock warehouse plates data
-  //     const mockWarehousePlates = [
-  //       "ABC-123",
-  //       "DEF-456",
-  //       "GHI-789",
-  //       "JKL-012",
-  //       "MNO-345",
-  //       "PQR-678",
-  //       "STU-901",
-  //       "VWX-234",
-  //       "YZA-567",
-  //       "BCD-890",
-  //       "REK-123",
-  //       "FIN-001",
-  //       "HEL-999",
-  //       "TUR-555",
-  //       "OUL-777",
-  //     ]
-
-  //     setUploadedPlates(mockWarehousePlates)
-  //     localStorage.setItem("warehousePlates", JSON.stringify(mockWarehousePlates))
-  //     setIsProcessing(false)
-
-  //     toast.success("Excel file processed", {
-  //       description: `${mockWarehousePlates.length} warehouse plates loaded`,
-  //     })
-  //   }, 2000)
-  // }
-
   const processExcelFile = async () => {
     if (!selectedFile) return;
 
@@ -70,37 +36,30 @@ export default function ExcelUploadPage() {
 
     const reader = new FileReader();
 
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       const data = new Uint8Array(e.target?.result as ArrayBuffer);
       const workbook = XLSX.read(data, { type: "array" });
-
-      // Read the first worksheet
       const sheetName = workbook.SheetNames[0];
       const worksheet = workbook.Sheets[sheetName];
 
-      // Convert to JSON array (each row is an object)
-      const jsonData = XLSX.utils.sheet_to_json<{ plate?: string }>(worksheet, {
-        header: 1,
-      });
+      const jsonData = XLSX.utils.sheet_to_json<{ plate?: string }>(worksheet, { header: 1 });
 
-      // Flatten and filter out non-strings/nulls
       const extractedPlates: string[] = jsonData
         .flat()
         .filter((item): item is string => typeof item === "string");
 
-      // Read existing warehouse plates from localStorage
       const existingPlates: string[] = JSON.parse(
         localStorage.getItem("warehousePlates") || "[]"
       );
 
-      // Add only new plates
       const uniqueNewPlates = extractedPlates.filter(
         (plate) => !existingPlates.includes(plate)
       );
 
-      const merged = [...existingPlates, ...uniqueNewPlates];
+      // Save each plate to Supabase
+      await Promise.all(uniqueNewPlates.map(plate => savePlateToSupabase(plate)));
 
-      // Save updated list to state and localStorage
+      const merged = [...existingPlates, ...uniqueNewPlates];
       setUploadedPlates(merged);
       localStorage.setItem("warehousePlates", JSON.stringify(merged));
 
@@ -119,9 +78,25 @@ export default function ExcelUploadPage() {
     reader.readAsArrayBuffer(selectedFile);
   };
 
+
   const goToDashboard = () => {
     router.push("/dashboard")
   }
+
+  // Supabase section
+  async function savePlateToSupabase(plate: string, imageUrl?: string) {
+    const { data, error } = await supabase
+      .from("excel_plates")
+      .insert([{ plate }]);
+
+    if (error) {
+      console.error("Error saving plate:", error);
+      return false;
+    }
+    return true;
+  }
+
+
 
   return (
     <div className="min-h-screen bg-gray-50">

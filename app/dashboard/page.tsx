@@ -10,12 +10,13 @@ import { Camera, Upload, FileSpreadsheet, Mail, Trash2, LogOut, Car, AlertCircle
 import { toast } from "sonner"
 import { generatePDFReport, estimatePDFSize } from "@/utils/pdfGenerator"
 import { sendReportEmail } from "@/utils/emailService"
+import { supabase } from '@/lib/supabaseClient'
 
 interface PlateRecord {
-  id: string
-  plateNumber: string
-  imageUrl: string
-  timestamp: Date
+  id: number
+  plate: string
+  plate_url: string
+  created_at: Date
   status: "matched" | "unmatched"
   isInWarehouse: boolean
 }
@@ -28,22 +29,49 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
-    const auth = localStorage.getItem("isAuthenticated")
-    if (!auth) {
-      router.push("/")
-    } else {
-      setIsAuthenticated(true)
-      // Load saved data
-      const saved = localStorage.getItem("scannedPlates")
-      if (saved) {
-        setScannedPlates(JSON.parse(saved))
+    const checkAuthAndLoadData = async () => {
+      const auth = localStorage.getItem("isAuthenticated"); // You can also use Supabase auth here
+      if (!auth) {
+        router.push("/");
+        return;
       }
-      const warehouse = localStorage.getItem("warehousePlates")
-      if (warehouse) {
-        setWarehousePlates(JSON.parse(warehouse))
+
+      setIsAuthenticated(true);
+
+      try {
+        // Fetch warehouse plates from Supabase
+        const { data: warehouseData, error: warehouseError } = await supabase
+          .from("excel_plates")
+          .select("*"); // select the columns you need, e.g., plate, plate_url
+
+        if (warehouseError) throw warehouseError;
+
+        if (warehouseData) {
+          const formattedWarehousePlates = warehouseData.map((item: any) => item.plate);
+          setWarehousePlates(formattedWarehousePlates);
+        }
+
+        // Fetch scanned plates from Supabase
+        const { data: scannedData, error: scannedError } = await supabase
+          .from("plates")
+          .select("*"); // select the columns you need
+
+        if (scannedError) throw scannedError;
+
+        if (scannedData) {
+          console.log("HERE IS THE SCANNED DATA: " + scannedData)
+          setScannedPlates(scannedData);
+        }
+
+      } catch (error) {
+        console.error("Error loading plates from Supabase:", error);
+        toast.error("Failed to load plates from server");
       }
-    }
-  }, [router])
+    };
+
+    checkAuthAndLoadData();
+  }, [router]);
+
 
   const handleLogout = () => {
     localStorage.removeItem("isAuthenticated")
@@ -284,7 +312,7 @@ export default function Dashboard() {
                     }`}
                   >
                     <div className="flex items-center justify-between">
-                      <span className="font-mono text-lg font-semibold">{plate.plateNumber}</span>
+                      <span className="font-mono text-lg font-semibold">{plate.plate}</span>
                       <Badge
                         variant={plate.isInWarehouse ? "default" : "destructive"}
                         className={plate.isInWarehouse ? "bg-green-600" : "bg-red-600"}
@@ -292,11 +320,11 @@ export default function Dashboard() {
                         {plate.isInWarehouse ? "✓ In Warehouse" : "✗ Not Found"}
                       </Badge>
                     </div>
-                    <div className="text-sm text-gray-500">{new Date(plate.timestamp).toLocaleString()}</div>
-                    {plate.imageUrl && (
+                    <div className="text-sm text-gray-500">{new Date(plate.created_at).toLocaleString()}</div>
+                    {plate.plate_url && (
                       <img
-                        src={plate.imageUrl || "/placeholder.svg"}
-                        alt={`License plate ${plate.plateNumber}`}
+                        src={plate.plate_url || "/placeholder.svg"}
+                        alt={`License plate ${plate.plate}`}
                         className="w-full h-24 object-cover rounded border"
                       />
                     )}

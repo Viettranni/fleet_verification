@@ -5,7 +5,7 @@ export async function POST(request: Request) {
     const data = await request.json()
 
     // In a real implementation, you would use an email service like SendGrid, Resend, etc.
-    // For now, we'll simulate a successful email send
+    // For now, we'll simulate a successful email send, doesn't work yet
 
     console.log("Email would be sent with:", {
       to: data.to,
