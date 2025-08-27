@@ -21,6 +21,13 @@ interface PlateRecord {
   isInWarehouse: boolean
 }
 
+interface WarehousePlate {
+  id: number
+  plate: string
+  plate_url: string
+  created_at: Date
+}
+
 export default function Dashboard() {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [scannedPlates, setScannedPlates] = useState<PlateRecord[]>([])
@@ -47,7 +54,9 @@ export default function Dashboard() {
         if (warehouseError) throw warehouseError;
 
         if (warehouseData) {
-          const formattedWarehousePlates = warehouseData.map((item: any) => item.plate);
+          const formattedWarehousePlates = (warehouseData as WarehousePlate[]).map(
+            (item) => item.plate
+          );
           setWarehousePlates(formattedWarehousePlates);
         }
 
@@ -126,13 +135,9 @@ export default function Dashboard() {
         toast.success("Report Generated & Sent", {
           description: `PDF report emailed to ${userEmail}`,
         })
-
-        // Optional: Clear images after successful email to save storage
-        if (confirm("Report sent successfully! Clear all images to free up storage?")) {
-          clearAllData()
-        }
       }
     } catch (error) {
+      console.log("Report error: " + error);
       toast.error("Error generating report", {
         description: "Please try again",
       })

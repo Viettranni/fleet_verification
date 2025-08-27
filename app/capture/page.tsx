@@ -65,7 +65,7 @@ export default function CapturePage() {
         stream.getTracks().forEach((track) => track.stop());
       }
     };
-  }, []);
+  }, [stream]);
 
   // Loads the plates now when the component mounts
   useEffect(() => {
@@ -101,6 +101,7 @@ export default function CapturePage() {
         videoRef.current.srcObject = mediaStream;
       }
     } catch (error) {
+      console.error("Camera error:", error);
       toast.error("Camera Error", {
         description: "Unable to access camera. Please check permissions.",
       });
@@ -176,37 +177,11 @@ export default function CapturePage() {
 
     if (isInWarehouse) {
       // Auto-save if found in warehouse
-      const newPlate = {
-        id: Date.now().toString(),
-        plate: plate,
-        plate_url: imageDataUrl, // Use the passed imageDataUrl
-        created_At: new Date(),
-        status: "matched" as const,
-        isInWarehouse: true,
-      };
-
       if (supaImgUrl) {
         savePlate(plate, supaImgUrl, true, "matched");
       } else {
         console.error("Upload failed, cannot save plate");
       }
-
-      // setRecentCaptures((prev) => [
-      //   {
-      //     id: newPlate.id,
-      //     plateNumber: newPlate.plate,
-      //     imageUrl: newPlate.plate_url,
-      //     timestamp: newPlate.created_At,
-      //     isInWarehouse: true,
-      //   },
-      //   ...prev.slice(0, 4),
-      // ]);
-
-      // const existing = JSON.parse(
-      //   localStorage.getItem("scannedPlates") || "[]"
-      // );
-      // const updated = [...existing, newPlate];
-      // localStorage.setItem("scannedPlates", JSON.stringify(updated));
 
       toast.success("✓ Plate Found in Warehouse", {
         description: `${plate} automatically added to inventory`,

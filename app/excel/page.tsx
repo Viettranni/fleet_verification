@@ -37,37 +37,56 @@ export default function ExcelUploadPage() {
     const reader = new FileReader();
 
     reader.onload = async (e) => {
-      const data = new Uint8Array(e.target?.result as ArrayBuffer);
-      const workbook = XLSX.read(data, { type: "array" });
-      const sheetName = workbook.SheetNames[0];
-      const worksheet = workbook.Sheets[sheetName];
+      try {
+        const data = new Uint8Array(e.target?.result as ArrayBuffer);
+        const workbook = XLSX.read(data, { type: "array" });
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
 
-      const jsonData = XLSX.utils.sheet_to_json<{ plate?: string }>(worksheet, { header: 1 });
+        // Flatten all cells to strings
+        const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+        const extractedPlates: string[] = jsonData
+          .flat()
+          .filter((item): item is string => typeof item === "string");
 
-      const extractedPlates: string[] = jsonData
-        .flat()
-        .filter((item): item is string => typeof item === "string");
+        // Load existing plates from Supabase
+        const { data: existingData, error: existingError } = await supabase
+          .from("excel_plates")
+          .select("plate");
 
-      const existingPlates: string[] = JSON.parse(
-        localStorage.getItem("warehousePlates") || "[]"
-      );
+        if (existingError) throw existingError;
 
-      const uniqueNewPlates = extractedPlates.filter(
-        (plate) => !existingPlates.includes(plate)
-      );
+        const existingPlates: string[] = existingData?.map((row) => row.plate) || [];
 
-      // Save each plate to Supabase
-      await Promise.all(uniqueNewPlates.map(plate => savePlateToSupabase(plate)));
+        // Only new plates
+        const uniqueNewPlates = extractedPlates.filter(
+          (plate) => !existingPlates.includes(plate)
+        );
 
-      const merged = [...existingPlates, ...uniqueNewPlates];
-      setUploadedPlates(merged);
-      localStorage.setItem("warehousePlates", JSON.stringify(merged));
+        // Save each new plate to Supabase
+        for (const plate of uniqueNewPlates) {
+          const { error } = await supabase
+            .from("excel_plates")
+            .insert([{ plate }]);
 
-      setIsProcessing(false);
+          if (error) {
+            console.error("Failed to save plate:", plate, error);
+          } else {
+            console.log("Saved plate:", plate);
+          }
+        }
 
-      toast.success("Excel file processed", {
-        description: `${uniqueNewPlates.length} new plates added (${merged.length} total)`,
-      });
+        setUploadedPlates([...existingPlates, ...uniqueNewPlates]);
+        toast.success("Excel file processed", {
+          description: `${uniqueNewPlates.length} new plates added (${existingPlates.length + uniqueNewPlates.length} total)`,
+        });
+
+      } catch (err) {
+        console.error(err);
+        toast.error("Failed to process Excel file");
+      } finally {
+        setIsProcessing(false);
+      }
     };
 
     reader.onerror = () => {
@@ -78,24 +97,9 @@ export default function ExcelUploadPage() {
     reader.readAsArrayBuffer(selectedFile);
   };
 
-
   const goToDashboard = () => {
     router.push("/dashboard")
   }
-
-  // Supabase section
-  async function savePlateToSupabase(plate: string, imageUrl?: string) {
-    const { data, error } = await supabase
-      .from("excel_plates")
-      .insert([{ plate }]);
-
-    if (error) {
-      console.error("Error saving plate:", error);
-      return false;
-    }
-    return true;
-  }
-
 
 
   return (

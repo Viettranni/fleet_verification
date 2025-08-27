@@ -1,10 +1,10 @@
 import jsPDF from "jspdf"
 
 interface PlateRecord {
-  id: string
-  plateNumber: string
-  imageUrl: string
-  timestamp: Date
+  id: number
+  plate: string
+  plate_url: string
+  created_at: Date
   isInWarehouse: boolean
 }
 
@@ -61,19 +61,19 @@ export const generatePDFReport = async (scannedPlates: PlateRecord[], warehouseP
 
       try {
         // Compress image more aggressively
-        const compressedImage = await compressImageForPDF(plate.imageUrl, 300, 1)
+        const compressedImage = await compressImageForPDF(plate.plate_url, 300, 1)
 
         // Add plate number on top of image
         pdf.setFontSize(8)
-        pdf.setFont(undefined, "bold")
+        pdf.setFont("helvetica", "bold")
 
         // Status indicator with color
         if (plate.isInWarehouse) {
           pdf.setTextColor(0, 128, 0) // Green
-          pdf.text(`✓ ${plate.plateNumber}`, x + 3, y + 5)
+          pdf.text(`✓ ${plate.plate}`, x + 3, y + 5)
         } else {
           pdf.setTextColor(255, 0, 0) // Red
-          pdf.text(`✗ ${plate.plateNumber}`, x + 3, y + 5)
+          pdf.text(`✗ ${plate.plate}`, x + 3, y + 5)
         }
 
         pdf.setTextColor(0, 0, 0) // Reset to black
@@ -83,7 +83,7 @@ export const generatePDFReport = async (scannedPlates: PlateRecord[], warehouseP
 
         // Add tiny timestamp at bottom
         pdf.setFontSize(6)
-        const shortDate = new Date(plate.timestamp).toLocaleDateString()
+        const shortDate = new Date(plate.created_at).toLocaleDateString()
         pdf.text(shortDate, x + 3, y + cellHeight - 3)
 
         // Move to next position in grid
@@ -101,7 +101,7 @@ export const generatePDFReport = async (scannedPlates: PlateRecord[], warehouseP
       } catch (error) {
         console.error("Error adding image to PDF:", error)
         // Continue without image, just add text
-        pdf.text(`${plate.plateNumber} - Image error`, x + 3, y + cellHeight / 2)
+        pdf.text(`${plate.plate} - Image error`, x + 3, y + cellHeight / 2)
 
         // Move to next position
         col++

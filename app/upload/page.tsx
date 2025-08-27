@@ -32,8 +32,8 @@ export default function UploadPage() {
     imageUrl: string;
   } | null>(null);
 
-  const sleep = (ms: number) =>
-    new Promise((resolve) => setTimeout(resolve, ms));
+  // const sleep = (ms: number) =>
+  //   new Promise((resolve) => setTimeout(resolve, ms));
 
   const handleFileSelect = async (
     event: React.ChangeEvent<HTMLInputElement>
@@ -51,6 +51,7 @@ export default function UploadPage() {
         setPreviewUrl(url);
         setDetectedPlate(null);
       } catch (error) {
+        console.log("HandleFileSelect error: " + error)
         toast.error("Image processing failed");
       }
     } else {
