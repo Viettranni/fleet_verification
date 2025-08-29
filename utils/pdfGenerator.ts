@@ -1,19 +1,27 @@
 import jsPDF from "jspdf"
+import { supabase } from "@/lib/supabaseClient" // adjust path to your client
 
-interface PlateRecord {
-  id: number
-  plate: string
-  plate_url: string
-  created_at: Date
-  isInWarehouse: boolean
-}
 
-export const generatePDFReport = async (scannedPlates: PlateRecord[], warehousePlates: string[]): Promise<Blob> => {
+export const generatePDFReport = async (): Promise<Blob> => {
+  // 1. Fetch data from Supabase
+  const { data: scannedPlates, error } = await supabase
+    .from("plates")
+    .select("*")
+
+  if (error) {
+    console.error("Error fetching plates:", error)
+    throw error
+  }
+
+  if (!scannedPlates || scannedPlates.length === 0) {
+    throw new Error("No plate data available")
+  }
+
   const pdf = new jsPDF("p", "mm", "a4")
   const pageWidth = pdf.internal.pageSize.getWidth()
   const pageHeight = pdf.internal.pageSize.getHeight()
 
-  // Title page
+  // --- Title Page ---
   pdf.setFontSize(20)
   pdf.text("License Plate Inventory Report", pageWidth / 2, 30, { align: "center" })
 
@@ -21,7 +29,7 @@ export const generatePDFReport = async (scannedPlates: PlateRecord[], warehouseP
   const reportDate = new Date().toLocaleDateString()
   pdf.text(`Generated: ${reportDate}`, pageWidth / 2, 45, { align: "center" })
 
-  // Summary statistics
+  // --- Summary statistics ---
   const matched = scannedPlates.filter((plate) => plate.isInWarehouse)
   const unmatched = scannedPlates.filter((plate) => !plate.isInWarehouse)
 
@@ -31,12 +39,27 @@ export const generatePDFReport = async (scannedPlates: PlateRecord[], warehouseP
   pdf.text(`Total Scanned: ${scannedPlates.length}`, 20, 85)
   pdf.text(`Found in Warehouse: ${matched.length}`, 20, 95)
   pdf.text(`Not in Warehouse: ${unmatched.length}`, 20, 105)
-  pdf.text(`Warehouse Inventory: ${warehousePlates.length} plates`, 20, 115)
 
-  // Add new page for plates
+  // --- Page 2: Plate List ---
   pdf.addPage()
+  pdf.setFontSize(14)
+  pdf.text("Plate List:", 20, 20)
+  pdf.setFontSize(10)
 
-  // Grid layout configuration
+  let y = 30
+  scannedPlates.forEach((plate, i) => {
+    if (y > pageHeight - 20) {
+      pdf.addPage()
+      y = 20
+    }
+
+    const status = plate.isInWarehouse ? "✓ In Warehouse" : "✗ Not Found"
+    pdf.text(`${i + 1}. ${plate.plate}   (${status})`, 20, y)
+    y += 7
+  })
+
+  // --- Image Grid Pages ---
+  pdf.addPage()
   const margin = 10
   const gridCols = 3
   const gridRows = 4
@@ -45,81 +68,50 @@ export const generatePDFReport = async (scannedPlates: PlateRecord[], warehouseP
   const imageWidth = cellWidth - 6
   const imageHeight = cellHeight - 15
 
-  let currentPage = 1
   let col = 0
   let row = 0
 
-  // Process plates in batches to improve performance
-  const batchSize = 20
-  for (let i = 0; i < scannedPlates.length; i += batchSize) {
-    const batch = scannedPlates.slice(i, i + batchSize)
+  for (const plate of scannedPlates) {
+    const x = margin + col * cellWidth
+    const y = margin + row * cellHeight
 
-    for (const plate of batch) {
-      // Calculate position
-      const x = margin + col * cellWidth
-      const y = margin + row * cellHeight
+    try {
+      const compressedImage = await compressImageForPDF(plate.plate_url, 300, 0.8)
 
-      try {
-        // Compress image more aggressively
-        const compressedImage = await compressImageForPDF(plate.plate_url, 300, 1)
+      pdf.setFontSize(8)
+      pdf.setFont("helvetica", "bold")
 
-        // Add plate number on top of image
-        pdf.setFontSize(8)
-        pdf.setFont("helvetica", "bold")
+      if (plate.isInWarehouse) {
+        pdf.setTextColor(0, 128, 0)
+        pdf.text(`✓ ${plate.plate}`, x + 3, y + 5)
+      } else {
+        pdf.setTextColor(255, 0, 0)
+        pdf.text(`✗ ${plate.plate}`, x + 3, y + 5)
+      }
 
-        // Status indicator with color
-        if (plate.isInWarehouse) {
-          pdf.setTextColor(0, 128, 0) // Green
-          pdf.text(`✓ ${plate.plate}`, x + 3, y + 5)
-        } else {
-          pdf.setTextColor(255, 0, 0) // Red
-          pdf.text(`✗ ${plate.plate}`, x + 3, y + 5)
-        }
+      pdf.setTextColor(0, 0, 0)
 
-        pdf.setTextColor(0, 0, 0) // Reset to black
+      pdf.addImage(compressedImage, "JPEG", x + 3, y + 7, imageWidth, imageHeight)
 
-        // Add image below the plate number
-        pdf.addImage(compressedImage, "JPEG", x + 3, y + 7, imageWidth, imageHeight)
+      pdf.setFontSize(6)
+      const shortDate = new Date(plate.created_at).toLocaleDateString()
+      pdf.text(shortDate, x + 3, y + cellHeight - 3)
+    } catch {
+      pdf.text(`${plate.plate} (Image error)`, x + 3, y + cellHeight / 2)
+    }
 
-        // Add tiny timestamp at bottom
-        pdf.setFontSize(6)
-        const shortDate = new Date(plate.created_at).toLocaleDateString()
-        pdf.text(shortDate, x + 3, y + cellHeight - 3)
-
-        // Move to next position in grid
-        col++
-        if (col >= gridCols) {
-          col = 0
-          row++
-
-          if (row >= gridRows) {
-            row = 0
-            pdf.addPage()
-            currentPage++
-          }
-        }
-      } catch (error) {
-        console.error("Error adding image to PDF:", error)
-        // Continue without image, just add text
-        pdf.text(`${plate.plate} - Image error`, x + 3, y + cellHeight / 2)
-
-        // Move to next position
-        col++
-        if (col >= gridCols) {
-          col = 0
-          row++
-
-          if (row >= gridRows) {
-            row = 0
-            pdf.addPage()
-            currentPage++
-          }
-        }
+    col++
+    if (col >= gridCols) {
+      col = 0
+      row++
+      if (row >= gridRows) {
+        row = 0
+        pdf.addPage()
       }
     }
   }
 
-  // Add page numbers
+  // --- Page numbers ---
   const pageCount = pdf.getNumberOfPages()
   for (let i = 1; i <= pageCount; i++) {
     pdf.setPage(i)
@@ -130,71 +122,37 @@ export const generatePDFReport = async (scannedPlates: PlateRecord[], warehouseP
   return pdf.output("blob")
 }
 
-const compressImageForPDF = (dataUrl: string, maxDimension = 300, quality = 1): Promise<string> => {
+// Image compression helper (same as before)
+const compressImageForPDF = (dataUrl: string, maxDimension = 300, quality = 0.8): Promise<string> => {
   return new Promise((resolve, reject) => {
     const img = new Image()
     img.onload = () => {
       const canvas = document.createElement("canvas")
       const ctx = canvas.getContext("2d")
+      if (!ctx) return reject(new Error("Canvas not available"))
 
-      if (!ctx) {
-        reject(new Error("Canvas context not available"))
-        return
-      }
-
-      let width = img.width
-      let height = img.height
-
+      let { width, height } = img
       if (width > height) {
         if (width > maxDimension) {
-          height = height * (maxDimension / width)
+          height *= maxDimension / width
           width = maxDimension
         }
       } else {
         if (height > maxDimension) {
-          width = width * (maxDimension / height)
+          width *= maxDimension / height
           height = maxDimension
         }
       }
 
-      // Round to avoid fractional pixels
-      width = Math.round(width)
-      height = Math.round(height)
+      canvas.width = Math.round(width)
+      canvas.height = Math.round(height)
 
-      canvas.width = width
-      canvas.height = height
-
-      ctx.imageSmoothingEnabled = true
-      ctx.imageSmoothingQuality = "high"
-
-      ctx.fillStyle = "#FFFFFF"
+      ctx.fillStyle = "#fff"
       ctx.fillRect(0, 0, width, height)
-
-      // Draw the original image source area scaled to canvas size
-      ctx.drawImage(img, 0, 0, img.width, img.height, 0, 0, width, height)
-
-      // Contrast enhancement logic remains the same
-      try {
-        const imageData = ctx.getImageData(0, 0, width, height)
-        const data = imageData.data
-
-        const truncate = (value: number): number => Math.max(0, Math.min(255, value))
-        const contrastFactor = 1.05
-
-        for (let i = 0; i < data.length; i += 4) {
-          data[i]     = truncate((data[i] - 128) * contrastFactor + 128)     // Red
-          data[i + 1] = truncate((data[i + 1] - 128) * contrastFactor + 128) // Green
-          data[i + 2] = truncate((data[i + 2] - 128) * contrastFactor + 128) // Blue
-        }
-
-        ctx.putImageData(imageData, 0, 0)
-      } catch (e) {
-        console.warn("Image enhancement failed, using original")
-      }
+      ctx.drawImage(img, 0, 0, width, height)
 
       resolve(canvas.toDataURL("image/jpeg", quality))
     }
-
     img.onerror = () => reject(new Error("Failed to load image"))
     img.src = dataUrl
   })

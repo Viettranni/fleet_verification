@@ -111,7 +111,7 @@ export default function Dashboard() {
       setLoading(true)
 
       // Generate PDF
-      const pdfBlob = await generatePDFReport(scannedPlates, warehousePlates)
+      const pdfBlob = await generatePDFReport();
 
       // Download PDF locally
       const url = URL.createObjectURL(pdfBlob)
