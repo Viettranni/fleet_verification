@@ -2,20 +2,34 @@ import jsPDF from "jspdf"
 import { supabase } from "@/lib/supabaseClient" // adjust path to your client
 
 
-export const generatePDFReport = async (): Promise<Blob> => {
-  // 1. Fetch data from Supabase
-  const { data: scannedPlates, error } = await supabase
-    .from("plates")
-    .select("*")
+interface PlateRecord {
+  id: number
+  plate: string
+  plate_url: string
+  created_at: Date
+  status: "matched" | "unmatched"
+  isInWarehouse: boolean
+}
 
-  if (error) {
-    console.error("Error fetching plates:", error)
-    throw error
-  }
+
+export const generatePDFReport = async (): Promise<Blob> => {
+  let scannedPlates: PlateRecord[] = [];
+
+  try {
+    scannedPlates = await fetchPlatesInChunks("plates", 30);
 
   if (!scannedPlates || scannedPlates.length === 0) {
-    throw new Error("No plate data available")
+    throw new Error("No plate data available");
   }
+
+  scannedPlates.sort((a, b) => a.plate.localeCompare(b.plate));
+
+  console.log("Scanned plates:", scannedPlates);
+} catch (error) {
+  console.error("Error fetching plates:", error);
+}
+
+
 
   const pdf = new jsPDF("p", "mm", "a4")
   const pageWidth = pdf.internal.pageSize.getWidth()
@@ -37,7 +51,6 @@ export const generatePDFReport = async (): Promise<Blob> => {
   pdf.text(`Total Scanned: ${scannedPlates.length}`, 20, 85)
 
   // --- Page 2: Plate List ---
-  // const plates = [ "ABC-123","DEF-456","GHI-789","JKL-012","MNO-345","PQR-678","STU-901","VWX-234","YZA-567","BCD-890", "EFG-123","HIJ-456","KLM-789","NOP-012","QRS-345","TUV-678","WXY-901","ZAB-234","CDE-567","FGH-890", "IJK-123","LMN-456","OPQ-789","RST-012","UVW-345","XYZ-678","ABC-901","DEF-234","GHI-567","JKL-890", "MNO-123","PQR-456","STU-789","VWX-012","YZA-345","BCD-678","EFG-901","HIJ-234","KLM-567","NOP-890", "QRS-123","TUV-456","WXY-789","ZAB-012","CDE-345","FGH-678","IJK-901","LMN-234","OPQ-567","RST-890", "UVW-123","XYZ-456","ABC-789","DEF-012","GHI-345","JKL-678","MNO-901","PQR-234","STU-567","VWX-890", "YZA-123","BCD-456","EFG-789","HIJ-012","KLM-345","NOP-678","QRS-901","TUV-234","WXY-567","ZAB-890", "CDE-123","FGH-456","IJK-789","LMN-012","OPQ-345","RST-678","UVW-901","XYZ-234","ABC-567","DEF-890", "GHI-123","JKL-456","MNO-789","PQR-012","STU-345","VWX-678","YZA-901","BCD-234","EFG-567","HIJ-890", "KLM-123","NOP-456","QRS-789","TUV-012","WXY-345","ZAB-678","CDE-901","FGH-234","IJK-567","LMN-890", "OPQ-123","RST-456","UVW-789","XYZ-012","ABC-345","DEF-678","GHI-901","JKL-234","MNO-567","PQR-890", "STU-123","VWX-456","YZA-789","BCD-012","EFG-345","HIJ-678","KLM-901","NOP-234","QRS-567","TUV-890", "WXY-123","ZAB-456","CDE-789","FGH-012","IJK-345","LMN-678","OPQ-901","RST-234","UVW-567","XYZ-890", "ABC-123","DEF-456","GHI-789","JKL-012","MNO-345","PQR-678","STU-901","VWX-234","YZA-567","BCD-890", "EFG-123","HIJ-456","KLM-789","NOP-012","QRS-345","TUV-678","WXY-901","ZAB-234","CDE-567","FGH-890", "IJK-123","LMN-456","OPQ-789","RST-012","UVW-345","XYZ-678","ABC-901","DEF-234","GHI-567","JKL-890", "MNO-123","PQR-456","STU-789","VWX-012","YZA-345","BCD-678","EFG-901","HIJ-234","KLM-567","NOP-890", "QRS-123","TUV-456","WXY-789","ZAB-012","CDE-345","FGH-678","IJK-901","LMN-234","OPQ-567","RST-890", "UVW-123","XYZ-456","ABC-789","DEF-012","GHI-345","JKL-678","MNO-901","PQR-234","STU-567","VWX-890", "YZA-123","BCD-456","EFG-789","HIJ-012","KLM-345","NOP-678","QRS-901","TUV-234","WXY-567","ZAB-890", "CDE-123","FGH-456","IJK-789","LMN-012","OPQ-345","RST-678","UVW-901","XYZ-234","ABC-567","DEF-890", "GHI-123","JKL-456","MNO-789","PQR-012","STU-345","VWX-678","YZA-901","BCD-234","EFG-567","HIJ-890", "KLM-123","NOP-456","QRS-789","TUV-012","WXY-345","ZAB-678","CDE-901","FGH-234","IJK-567","LMN-890", "OPQ-123","RST-456","UVW-789","XYZ-012","ABC-345","DEF-678","GHI-901","JKL-234","MNO-567","PQR-890", "STU-123","VWX-456","YZA-789","BCD-012","EFG-345","HIJ-678","KLM-901","NOP-234","QRS-567","TUV-890", "WXY-123","ZAB-456","CDE-789","FGH-012","IJK-345","LMN-678","OPQ-901","RST-234","UVW-567","XYZ-890", "ABC-123","DEF-456","GHI-789","JKL-012","MNO-345","PQR-678","STU-901","VWX-234","YZA-567","BCD-890", "EFG-123","HIJ-456","KLM-789","NOP-012","QRS-345","TUV-678","WXY-901","ZAB-234","CDE-567","FGH-890", "IJK-123","LMN-456","OPQ-789","RST-012","UVW-345","XYZ-678","ABC-901","DEF-234","GHI-567","JKL-890", "MNO-123","PQR-456","STU-789","VWX-012","YZA-345","BCD-678","EFG-901","HIJ-234","KLM-567","NOP-890", "QRS-123","TUV-456","WXY-789","ZAB-012","CDE-345","FGH-678","IJK-901","LMN-234","OPQ-567","RST-890", "UVW-123","XYZ-456","ABC-789","DEF-012","GHI-345","JKL-678","MNO-901","PQR-234","STU-567","VWX-890", "YZA-123","BCD-456","EFG-789","HIJ-012","KLM-345","NOP-678","QRS-901","TUV-234","WXY-567","ZAB-890" ];
   pdf.addPage()
   pdf.setFontSize(14)
   pdf.text("Plate List:", 20, 20)
@@ -75,8 +88,6 @@ export const generatePDFReport = async (): Promise<Blob> => {
   const gridRows = 4
   const cellWidth = (pageWidth - margin * 2) / gridCols
   const cellHeight = (pageHeight - margin * 2) / gridRows
-  const imageWidth = cellWidth - 6
-  const imageHeight = cellHeight - 15
 
   let col = 0
   let row = 0
@@ -86,26 +97,51 @@ export const generatePDFReport = async (): Promise<Blob> => {
     const y = margin + row * cellHeight
 
     try {
-      const compressedImage = await compressImageForPDF(plate.plate_url, 300, 0.8)
+      const compressedImage = await compressImageForPDF(plate.plate_url, 300, 1)
 
-      pdf.setFontSize(8)
-      pdf.setFont("helvetica", "bold")
+      // Load image to get dimensions
+      const img = new Image()
+      img.src = compressedImage
+      await new Promise((resolve) => { img.onload = resolve })
 
-      if (plate.isInWarehouse) {
-        pdf.setTextColor(0, 128, 0)
-        pdf.text(`✓ ${plate.plate}`, x + 3, y + 5)
+      const imgRatio = img.width / img.height
+
+      // Zoom factor: increase image size slightly
+      const zoom = 0.9
+
+      let drawWidth = (cellWidth - 6) * zoom
+      let drawHeight = (cellHeight - 15) * zoom
+
+      if (imgRatio > drawWidth / drawHeight) {
+        drawHeight = drawWidth / imgRatio
       } else {
-        pdf.setTextColor(255, 0, 0)
-        pdf.text(`✗ ${plate.plate}`, x + 3, y + 5)
+        drawWidth = drawHeight * imgRatio
       }
 
+      // Center image inside cell
+      const offsetX = x + 3 + (cellWidth - 6 - drawWidth) / 2
+      const offsetY = y + 7 + (cellHeight - 15 - drawHeight) / 2
+
+      // Draw plate label
+      pdf.setFontSize(8)
+      pdf.setFont("helvetica", "bold")
+      if (plate.isInWarehouse) {
+        pdf.setTextColor(0, 128, 0)
+        pdf.text(`V ${plate.plate}`, x + 3, y + 5)
+      } else {
+        pdf.setTextColor(255, 0, 0)
+        pdf.text(`X ${plate.plate}`, x + 3, y + 5)
+      }
       pdf.setTextColor(0, 0, 0)
 
-      pdf.addImage(compressedImage, "JPEG", x + 3, y + 7, imageWidth, imageHeight)
+      // Add image
+      pdf.addImage(compressedImage, "JPEG", offsetX, offsetY, drawWidth, drawHeight)
 
+      // Add date at bottom of cell
       pdf.setFontSize(6)
       const shortDate = new Date(plate.created_at).toLocaleDateString()
       pdf.text(shortDate, x + 3, y + cellHeight - 3)
+
     } catch {
       pdf.text(`${plate.plate} (Image error)`, x + 3, y + cellHeight / 2)
     }
@@ -121,6 +157,7 @@ export const generatePDFReport = async (): Promise<Blob> => {
     }
   }
 
+
   // --- Page numbers ---
   const pageCount = pdf.getNumberOfPages()
   for (let i = 1; i <= pageCount; i++) {
@@ -133,7 +170,7 @@ export const generatePDFReport = async (): Promise<Blob> => {
 }
 
 // Image compression helper (same as before)
-const compressImageForPDF = (dataUrl: string, maxDimension = 300, quality = 0.8): Promise<string> => {
+const compressImageForPDF = (dataUrl: string, maxDimension = 400, quality = 1): Promise<string> => {
   return new Promise((resolve, reject) => {
     const img = new Image()
     img.crossOrigin = "anonymous"
@@ -181,3 +218,27 @@ export const estimatePDFSize = (plateCount: number): string => {
     return `~${(estimatedKB / 1024).toFixed(1)} MB`
   }
 }
+
+const fetchPlatesInChunks = async (tableName: string, chunkSize = 30) => {
+      let allData: any[] = [];
+      let from = 0;
+      let hasMore = true;
+
+      while (hasMore) {
+        const { data, error } = await supabase
+          .from(tableName)
+          .select("*")
+          .range(from, from + chunkSize - 1); // fetch a chunk
+
+        if (error) throw error;
+
+        if (data && data.length > 0) {
+          allData = [...allData, ...data];
+          from += chunkSize;
+        } else {
+          hasMore = false; // stop if no more rows
+        }
+      }
+
+      return allData;
+    };

@@ -46,31 +46,12 @@ export default function Dashboard() {
       setIsAuthenticated(true);
 
       try {
-        // Fetch warehouse plates from Supabase
-        const { data: warehouseData, error: warehouseError } = await supabase
-          .from("excel_plates")
-          .select("*"); // select the columns you need, e.g., plate, plate_url
+        const warehouseData = await fetchPlatesInChunks("excel_plates", 30);
+        setWarehousePlates(warehouseData.map((item: any) => item.plate));
+        console.log(warehousePlates)
 
-        if (warehouseError) throw warehouseError;
-
-        if (warehouseData) {
-          const formattedWarehousePlates = (warehouseData as WarehousePlate[]).map(
-            (item) => item.plate
-          );
-          setWarehousePlates(formattedWarehousePlates);
-        }
-
-        // Fetch scanned plates from Supabase
-        const { data: scannedData, error: scannedError } = await supabase
-          .from("plates")
-          .select("*"); // select the columns you need
-
-        if (scannedError) throw scannedError;
-
-        if (scannedData) {
-          console.log("HERE IS THE SCANNED DATA: " + scannedData)
-          setScannedPlates(scannedData);
-        }
+        const scannedData = await fetchPlatesInChunks("plates", 30);
+        setScannedPlates(scannedData);
 
       } catch (error) {
         console.error("Error loading plates from Supabase:", error);
@@ -80,6 +61,31 @@ export default function Dashboard() {
 
     checkAuthAndLoadData();
   }, [router]);
+
+  // Breaking the code into chunks for it to prevent the timeout error from supabase
+  const fetchPlatesInChunks = async (tableName: string, chunkSize = 30) => {
+    let allData: any[] = [];
+    let from = 0;
+    let hasMore = true;
+
+    while (hasMore) {
+      const { data, error } = await supabase
+        .from(tableName)
+        .select("*")
+        .range(from, from + chunkSize - 1); // fetch a chunk
+
+      if (error) throw error;
+
+      if (data && data.length > 0) {
+        allData = [...allData, ...data];
+        from += chunkSize;
+      } else {
+        hasMore = false; // stop if no more rows
+      }
+    }
+
+    return allData;
+  };
 
 
   const handleLogout = () => {
