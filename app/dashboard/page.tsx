@@ -21,12 +21,6 @@ interface PlateRecord {
   isInWarehouse: boolean
 }
 
-interface WarehousePlate {
-  id: number
-  plate: string
-  plate_url: string
-  created_at: Date
-}
 
 export default function Dashboard() {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
