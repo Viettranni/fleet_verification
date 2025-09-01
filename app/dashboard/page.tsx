@@ -41,7 +41,7 @@ export default function Dashboard() {
 
       try {
         const warehouseData = await fetchPlatesInChunks("excel_plates", 30);
-        setWarehousePlates(warehouseData.map((item: any) => item.plate));
+        setWarehousePlates(warehouseData.map((item: PlateRecord) => item.plate));
         console.log(warehousePlates)
 
         const scannedData = await fetchPlatesInChunks("plates", 30);
@@ -58,7 +58,7 @@ export default function Dashboard() {
 
   // Breaking the code into chunks for it to prevent the timeout error from supabase
   const fetchPlatesInChunks = async (tableName: string, chunkSize = 30) => {
-    let allData: any[] = [];
+    let allData: PlateRecord[] = [];
     let from = 0;
     let hasMore = true;
 
