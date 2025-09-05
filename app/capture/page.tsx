@@ -71,7 +71,7 @@ export default function CapturePage() {
   useEffect(() => {
     const fetchPlates = async () => {
       const { data, error } = await supabase
-        .from("plates")
+        .from("excel_plates")
         .select("plate"); // fetch only the plate column
 
       if (error) {
@@ -82,6 +82,8 @@ export default function CapturePage() {
       // Extract plate strings from the returned data
       const platesFromDB = data?.map((row) => row.plate) || [];
       setUploadedPlates(platesFromDB);
+      // Checking if it actually gets any plates from db
+      console.log("Uploaded plates: " + platesFromDB)
     };
 
     fetchPlates();
@@ -157,34 +159,27 @@ export default function CapturePage() {
     }
 
     // After the plate was checked to be valid we would set the detected plate and upload the image file to supabase bucket and also table as key pair
-    setDetectedPlate(formatFinnishPlate(plate));
+    const formattedPlate = formatFinnishPlate(plate)
+    setDetectedPlate(formattedPlate);
     const supaImgUrl = await uploadImage(file);
 
     // Checks if supabase returns string and not null
-    
-
     console.log("This is the captured image URL: " + supaImgUrl)
 
 
-    // TODO: CHECK the upload logic also to match
-    // TODO: Make sure that the generate report works correctly
-    // TODO: Does clear all and clear scanned work correctly?
-    // TODO: Dashboard is not fetching the numbers correctly
-
-
     // Would check if the plate is in User's uploaded excel, returns true or false
-    const isInWarehouse = uploadedPlates.includes(plate);
+    const isInWarehouse = uploadedPlates.includes(formattedPlate);
 
     if (isInWarehouse) {
       // Auto-save if found in warehouse
       if (supaImgUrl) {
-        savePlate(plate, supaImgUrl, true, "matched");
+        savePlate(formattedPlate, supaImgUrl, true, "matched");
       } else {
         console.error("Upload failed, cannot save plate");
       }
 
       toast.success("✓ Plate Found in Warehouse", {
-        description: `${plate} automatically added to inventory`,
+        description: `${formattedPlate} automatically added to inventory`,
       });
 
       setTimeout(() => {
@@ -194,7 +189,7 @@ export default function CapturePage() {
       }, 800);
     } else {
       // Show confirmation dialog for plates not in warehouse
-      setPendingPlate({ plateNumber: plate, imageUrl: imageDataUrl }); // Use the passed imageDataUrl
+      setPendingPlate({ plateNumber: formattedPlate, imageUrl: imageDataUrl }); // Use the passed imageDataUrl
       setShowConfirmDialog(true);
     }
 
