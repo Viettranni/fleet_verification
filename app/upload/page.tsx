@@ -1,7 +1,7 @@
 "use client";
 
 import type React from "react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,6 +9,8 @@ import { Upload, ArrowLeft, FileImage, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
 import { recognizePlate } from "../../utils/plateRecognizer";
 import { resizeAndCompressImage } from "../../utils/imageQualityManipulation"
+import { supabase } from '@/lib/supabaseClient'
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -25,19 +27,36 @@ export default function UploadPage() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [detectedPlate, setDetectedPlate] = useState<string | null>(null);
-  const router = useRouter();
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [pendingPlate, setPendingPlate] = useState<{
     plateNumber: string;
     imageUrl: string;
   } | null>(null);
 
-  // const sleep = (ms: number) =>
-  //   new Promise((resolve) => setTimeout(resolve, ms));
+  const router = useRouter();
+  const [uploadedPlates, setUploadedPlates] = useState<string[]>([]);
 
-  const handleFileSelect = async (
-    event: React.ChangeEvent<HTMLInputElement>
-  ) => {
+  // ✅ Load warehouse plates on mount (same as camera flow)
+  useEffect(() => {
+    const fetchPlates = async () => {
+      const { data, error } = await supabase
+        .from("excel_plates")
+        .select("plate");
+
+      if (error) {
+        console.error("Error fetching plates:", error);
+        return;
+      }
+
+      const platesFromDB = data?.map((row) => row.plate) || [];
+      setUploadedPlates(platesFromDB);
+    };
+
+    fetchPlates();
+  }, []);
+
+  // ✅ Handle file input
+  const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file && file.type.startsWith("image/")) {
       try {
@@ -51,7 +70,7 @@ export default function UploadPage() {
         setPreviewUrl(url);
         setDetectedPlate(null);
       } catch (error) {
-        console.log("HandleFileSelect error: " + error)
+        console.error("HandleFileSelect error: " + error);
         toast.error("Image processing failed");
       }
     } else {
@@ -59,77 +78,58 @@ export default function UploadPage() {
     }
   };
 
+  // ✅ Process uploaded image
   const processImage = async () => {
     if (!selectedFile || !previewUrl) return;
 
     setIsProcessing(true);
 
+    // Run recognition
     const plate = await recognizePlate(selectedFile);
 
     if (!plate) {
       toast.error("Could not detect a valid plate number, please try again");
       setIsProcessing(false);
-      await new Promise((resolve) => setTimeout(resolve, 1500000));
-      window.location.reload();
       return;
     }
 
-    setDetectedPlate(plate);
+    // Format plate like Finnish plates
+    const formattedPlate = formatFinnishPlate(plate);
+    setDetectedPlate(formattedPlate);
 
-    // Your existing warehouse check logic
-    const warehousePlates = JSON.parse(
-      localStorage.getItem("warehousePlates") || "[]"
-    );
-    const isInWarehouse = warehousePlates.includes(plate);
+    // Upload image to Supabase storage
+    const supaImgUrl = await uploadImage(selectedFile);
+    console.log("This is the uploaded image URL: " + supaImgUrl);
+
+    const isInWarehouse = uploadedPlates.includes(formattedPlate);
 
     if (isInWarehouse) {
-      // Auto-save if found in warehouse
-      const newPlate = {
-        id: Date.now().toString(),
-        plateNumber: plate,
-        imageUrl: previewUrl,
-        timestamp: new Date(),
-        status: "matched" as const,
-        isInWarehouse: true,
-      };
-
-      const existing = JSON.parse(
-        localStorage.getItem("scannedPlates") || "[]"
-      );
-      const updated = [...existing, newPlate];
-      localStorage.setItem("scannedPlates", JSON.stringify(updated));
+      // ✅ Auto-save if found in warehouse
+      if (supaImgUrl) {
+        savePlate(formattedPlate, supaImgUrl, true, "matched");
+      }
 
       toast.success("✓ Plate Found in Warehouse", {
-        description: `${plate} automatically added to inventory`,
+        description: `${formattedPlate} automatically added to inventory`,
       });
 
       setTimeout(() => {
         router.push("/dashboard");
-      }, 1500);
+      }, 1000);
     } else {
-      // Show confirmation dialog for plates not in warehouse
-      setPendingPlate({ plateNumber: plate, imageUrl: previewUrl });
+      // Show confirmation dialog for unmatched
+      setPendingPlate({ plateNumber: formattedPlate, imageUrl: supaImgUrl || previewUrl });
       setShowConfirmDialog(true);
     }
 
     setIsProcessing(false);
   };
 
+  // ✅ Add unmatched plate
   const handleAddUnmatchedPlate = () => {
     if (!pendingPlate) return;
 
-    const newPlate = {
-      id: Date.now().toString(),
-      plateNumber: pendingPlate.plateNumber,
-      imageUrl: pendingPlate.imageUrl,
-      timestamp: new Date(),
-      status: "unmatched" as const,
-      isInWarehouse: false,
-    };
-
-    const existing = JSON.parse(localStorage.getItem("scannedPlates") || "[]");
-    const updated = [...existing, newPlate];
-    localStorage.setItem("scannedPlates", JSON.stringify(updated));
+    savePlate(pendingPlate.plateNumber, pendingPlate.imageUrl, false, "unmatched");
 
     toast.success("Plate Added", {
       description: `${pendingPlate.plateNumber} added as unmatched plate`,
@@ -140,6 +140,7 @@ export default function UploadPage() {
     router.push("/upload");
   };
 
+  // ✅ Skip unmatched plate
   const handleSkipPlate = () => {
     toast.info("Plate Skipped", {
       description: `${pendingPlate?.plateNumber} was not added to inventory`,
@@ -150,6 +151,59 @@ export default function UploadPage() {
     setPreviewUrl(null);
     setDetectedPlate(null);
   };
+
+  // Formatting the plate
+  function formatFinnishPlate(plate: string): string {
+    // Remove any existing dash and convert to uppercase
+    const cleaned = plate.replace(/-/g, "").toUpperCase();
+
+    // Ensure it has at least 3 letters + numbers
+    if (cleaned.length > 3) {
+      return `${cleaned.slice(0, 3)}-${cleaned.slice(3)}`;
+    }
+
+    return cleaned;
+  }
+
+  // Saving the plate and image url to supabase to plates table
+  async function savePlate(plateNumber: string, imageUrl: string, isInWarehouse: boolean, status: "matched" | "unmatched") {
+
+    const { data, error } = await supabase
+      .from('plates')
+      .insert([
+        { plate: plateNumber, 
+          plate_url: imageUrl,
+          isInWarehouse: isInWarehouse,
+          status: status
+        }
+      ])
+
+    if (error) console.error(error)
+    else console.log('Saved plate:', data)
+  }
+
+  // Uploads to the supabase bucket and would return the image url
+  async function uploadImage(file: File): Promise<string | null> {
+    const fileName = `${Date.now()}-${file.name}`; // unique filename
+
+    const { error } = await supabase.storage
+      .from('car_images')
+      .upload(fileName, file);
+
+    if (error) {
+      console.error('Upload error:', error);
+      console.log("There was an error while uploading to Supabase!");
+      return null;
+    }
+
+    // Get public URL
+    const { data } = supabase.storage
+      .from('car_images')
+      .getPublicUrl(fileName);
+
+    return data.publicUrl; 
+  }
+
 
   return (
     <div className="min-h-screen bg-gray-50">
